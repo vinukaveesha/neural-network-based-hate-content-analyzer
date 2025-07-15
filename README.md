@@ -160,7 +160,7 @@ python -m streamlit run streamlit_app.py --server.port 8502
 #### Batch Analysis
 1. Select "Multiple Texts" mode
 2. Enter multiple texts (one per line)
-3. Click "🔍 Analyze All Texts"
+3. Click "Analyze All Texts"
 4. View summary statistics and detailed results
 5. Download results as CSV if needed
 
@@ -276,13 +276,5 @@ pip install pytest black flake8
 - **NLTK**: For natural language processing
 - **Plotly**: For interactive visualizations
 - **Open Source Community**: For various tools and libraries
-
-## Support
-
-If you encounter any issues or have questions:
-
-1. Check the [Issues](https://github.com/vinukaveesha/neural-network-based-hate-content-analyzer/issues) page
-2. Create a new issue with detailed description
-3. Join our [Discussions](https://github.com/vinukaveesha/neural-network-based-hate-content-analyzer/discussions)
 
 ---
