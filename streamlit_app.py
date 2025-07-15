@@ -28,13 +28,12 @@ load_dotenv()
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="Hate Speech Detection System",
+    page_title="Hate Content Detection System",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Download NLTK data if not already present
 @st.cache_resource
 def download_nltk_data():
     try:
@@ -204,39 +203,11 @@ class StreamlitHateSpeechDetector:
                 "explanation": f"Error: {str(e)}"
             }
 
-# Create visualization for results
-def create_probability_chart(probability, threshold=0.5):
-    """Create a gauge chart for hate speech probability"""
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number+delta",
-        value = probability,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Hate Speech Probability"},
-        delta = {'reference': threshold},
-        gauge = {
-            'axis': {'range': [None, 1]},
-            'bar': {'color': "darkblue"},
-            'steps': [
-                {'range': [0, 0.3], 'color': "lightgreen"},
-                {'range': [0.3, 0.7], 'color': "yellow"},
-                {'range': [0.7, 1], 'color': "red"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': threshold
-            }
-        }
-    ))
-    
-    fig.update_layout(height=300)
-    return fig
-
 # Main Streamlit App
 def main():
     # Header
-    st.title("Hate Speech Detection System")
-    st.markdown("### Advanced AI-powered hate speech detection with category classification")
+    st.title("Hate Content Detection System")
+    st.markdown("### Advanced AI-powered hate content detection with category classification")
     st.markdown("---")
     
     # Load model and tokenizer
@@ -258,7 +229,7 @@ def main():
     st.sidebar.info("""
     This system uses an LSTM neural network to detect hate speech in text.
     
-    **Features:**
+    **Features**
     - Real-time hate speech detection
     - Confidence scoring
     - Category classification
@@ -269,7 +240,7 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("📝 Input Text")
+        st.subheader("Input Text")
         
         # Text input options
         input_method = st.radio("Choose input method:", ["Single Text", "Multiple Texts"])
@@ -282,7 +253,7 @@ def main():
                 help="Enter any text you want to analyze for hate speech"
             )
             
-            if st.button("🔍 Analyze Text", type="primary"):
+            if st.button("Analyze Text", type="primary"):
                 if user_input.strip():
                     with st.spinner("Analyzing text..."):
                         analyze_single_text(detector, user_input)
@@ -290,7 +261,7 @@ def main():
                     st.warning("Please enter some text to analyze.")
         
         else:  # Multiple Texts
-            st.subheader("📋 Batch Analysis")
+            st.subheader("Batch Analysis")
             sample_texts = st.text_area(
                 "Enter multiple texts (one per line):",
                 height=200,
@@ -298,7 +269,7 @@ def main():
                 help="Enter multiple texts separated by new lines"
             )
             
-            if st.button("🔍 Analyze All Texts", type="primary"):
+            if st.button("Analyze All Texts", type="primary"):
                 if sample_texts.strip():
                     texts = [text.strip() for text in sample_texts.split('\n') if text.strip()]
                     if texts:
@@ -310,10 +281,10 @@ def main():
                     st.warning("Please enter some texts to analyze.")
     
     with col2:
-        st.subheader("📊 Quick Stats")
+        st.subheader("Quick Stats")
         
         # Sample texts for quick testing
-        st.markdown("**Quick Test Examples:**")
+        st.markdown("**Quick Test Examples**")
         sample_examples = [
             "I love this beautiful day!",
             "You're such an idiot!",
@@ -333,7 +304,7 @@ def analyze_single_text(detector, text):
     is_hate, prob, confidence, cleaned_text = detector.predict_with_confidence(text)
     
     # Display results
-    st.subheader("📊 Analysis Results")
+    st.subheader("Analysis Results")
     
     # Create columns for results
     col1, col2, col3 = st.columns(3)
@@ -422,7 +393,7 @@ def analyze_multiple_texts(detector, texts):
         st.metric("Hate Speech Rate", f"{(hate_count/total_count)*100:.1f}%")
     
     # Display results table
-    st.subheader("📋 Detailed Results")
+    st.subheader("Detailed Results")
     
     # Add filtering options
     filter_option = st.selectbox(
@@ -444,14 +415,6 @@ def analyze_multiple_texts(detector, texts):
         hide_index=True
     )
     
-    # Download results
-    csv = df.to_csv(index=False)
-    st.download_button(
-        label="📥 Download Results as CSV",
-        data=csv,
-        file_name=f"hate_speech_analysis_{time.strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
 
 if __name__ == "__main__":
     main()
