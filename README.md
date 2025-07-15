@@ -1,8 +1,8 @@
-# 🛡️ Neural Network-Based Hate Content Analyzer
+# Neural Network-Based Hate Content Analyzer
 
 An advanced AI-powered hate speech detection system that uses LSTM neural networks and Google Gemini AI for real-time text analysis and category classification.
 
-## 📋 Table of Contents
+## Table of Contents
 - [Overview](#overview)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
@@ -16,7 +16,7 @@ An advanced AI-powered hate speech detection system that uses LSTM neural networ
 - [Contributing](#contributing)
 - [License](#license)
 
-## 🔍 Overview
+## Overview
 
 The Neural Network-Based Hate Content Analyzer is a comprehensive solution for detecting and classifying hate speech in text content. It combines the power of LSTM neural networks with Google's Gemini AI to provide accurate detection with detailed category classification.
 
@@ -29,25 +29,25 @@ The Neural Network-Based Hate Content Analyzer is a comprehensive solution for d
 - **Interactive Dashboard**: User-friendly Streamlit interface
 - **Export Features**: Download results as CSV files
 
-## ✨ Features
+## Features
 
 ### Core Features
-- 🔍 **Single Text Analysis** - Analyze individual comments or posts
-- 📊 **Batch Processing** - Process multiple texts at once
-- 🎯 **Probability Scoring** - Visual gauge showing hate speech probability
-- 🏷️ **AI Category Classification** - Automatic categorization using Gemini AI
-- 📈 **Confidence Levels** - High/Medium/Low confidence indicators
-- 💾 **Export Results** - Download analysis results as CSV
-- ⚙️ **Adjustable Threshold** - Customize detection sensitivity
+- **Single Text Analysis** - Analyze individual comments or posts
+- **Batch Processing** - Process multiple texts at once
+- **Probability Scoring** - Visual gauge showing hate speech probability
+- **AI Category Classification** - Automatic categorization using Gemini AI
+- **Confidence Levels** - High/Medium/Low confidence indicators
+- **Export Results** - Download analysis results as CSV
+- **Adjustable Threshold** - Customize detection sensitivity
 
 ### Advanced Features
-- 🔧 **Text Preprocessing** - Advanced text cleaning and normalization
-- 📱 **Responsive Design** - Works on desktop and mobile devices
-- 🚀 **Real-time Processing** - Optimized for speed and performance
-- 🔒 **Secure Configuration** - Environment variable-based API key management
-- 📊 **Interactive Visualizations** - Plotly-based charts and gauges
+- **Text Preprocessing** - Advanced text cleaning and normalization
+- **Responsive Design** - Works on desktop and mobile devices
+- **Real-time Processing** - Optimized for speed and performance
+- **Secure Configuration** - Environment variable-based API key management
+- **Interactive Visualizations** - Plotly-based charts and gauges
 
-## 🛠️ Prerequisites
+## Prerequisites
 
 Before you begin, ensure you have the following installed:
 - **Python 3.8+** (recommended: Python 3.9 or 3.10)
@@ -55,7 +55,7 @@ Before you begin, ensure you have the following installed:
 - **Git** (for cloning the repository)
 - **Google Gemini API Key** (for category classification)
 
-## 📦 Installation
+## Installation
 
 ### Step 1: Clone the Repository
 ```bash
@@ -97,7 +97,7 @@ nltk.download('wordnet')
 nltk.download('omw-1.4')
 ```
 
-## 🔑 Configuration
+## Configuration
 
 ### Step 1: Get Google Gemini API Key
 1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
@@ -122,7 +122,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 **Important**: Never commit your API key to version control. The `.env` file is already included in `.gitignore`.
 
-## 🚀 Usage
+## Usage
 
 ### Running the Application
 
@@ -154,7 +154,7 @@ python -m streamlit run streamlit_app.py --server.port 8502
 #### Single Text Analysis
 1. Select "Single Text" mode
 2. Enter text in the input area
-3. Click "🔍 Analyze Text"
+3. Click "Analyze Text"
 4. View results including probability, confidence, and category
 
 #### Batch Analysis
@@ -169,7 +169,7 @@ python -m streamlit run streamlit_app.py --server.port 8502
 - **Quick Examples**: Test with pre-built sample texts
 - **Export Options**: Download batch results for further analysis
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 neural-network-based-hate-content-analyzer/
@@ -185,7 +185,7 @@ neural-network-based-hate-content-analyzer/
 └── venv/                        # Virtual environment (created by you)
 ```
 
-## 🧠 Model Architecture
+## Model Architecture
 
 ### LSTM Neural Network
 - **Architecture**: Bidirectional LSTM with attention mechanisms
@@ -210,7 +210,7 @@ neural-network-based-hate-content-analyzer/
 - **Optimization**: Adam optimizer with learning rate scheduling
 - **Regularization**: Dropout and L2 regularization to prevent overfitting
 
-## 🤖 API Integration
+## API Integration
 
 ### Google Gemini AI
 - **Purpose**: Category classification of detected hate speech
@@ -223,23 +223,7 @@ neural-network-based-hate-content-analyzer/
   - Other hate speech
 - **Features**: Confidence scoring and explanation generation
 
-### Rate Limiting
-- The system handles API rate limits gracefully
-- Automatic retry mechanisms for failed requests
-- Fallback options when API is unavailable
-
-## 📊 Screenshots
-
-### Main Interface
-![Main Interface](https://via.placeholder.com/800x400?text=Main+Interface+Screenshot)
-
-### Analysis Results
-![Analysis Results](https://via.placeholder.com/800x400?text=Analysis+Results+Screenshot)
-
-### Batch Processing
-![Batch Processing](https://via.placeholder.com/800x400?text=Batch+Processing+Screenshot)
-
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -267,37 +251,6 @@ ModuleNotFoundError: No module named 'streamlit'
 ```
 **Solution**: Ensure virtual environment is activated and requirements are installed.
 
-### Performance Tips
-- Use batch processing for multiple texts
-- Adjust detection threshold based on your use case
-- Close other applications to free up memory for large batches
-
-## 🛡️ Security Considerations
-
-- **API Key Security**: Never commit API keys to version control
-- **Input Validation**: All user inputs are sanitized
-- **Rate Limiting**: Respect API rate limits to avoid blocking
-- **Data Privacy**: No user data is stored permanently
-
-## 📈 Future Enhancements
-
-- [ ] Multi-language support
-- [ ] Real-time streaming analysis
-- [ ] Custom model training interface
-- [ ] Integration with social media APIs
-- [ ] Advanced analytics dashboard
-- [ ] Mobile application
-- [ ] API endpoint for integration
-
-## 🤝 Contributing
-
-We welcome contributions! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ### Development Setup
 ```bash
@@ -315,11 +268,7 @@ pip install -r requirements.txt
 pip install pytest black flake8
 ```
 
-## 📜 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **TensorFlow/Keras**: For the deep learning framework
 - **Streamlit**: For the web application framework
@@ -328,7 +277,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Plotly**: For interactive visualizations
 - **Open Source Community**: For various tools and libraries
 
-## 📞 Support
+## Support
 
 If you encounter any issues or have questions:
 
@@ -336,17 +285,4 @@ If you encounter any issues or have questions:
 2. Create a new issue with detailed description
 3. Join our [Discussions](https://github.com/vinukaveesha/neural-network-based-hate-content-analyzer/discussions)
 
-## 📊 Project Status
-
-- ✅ **Core Features**: Complete
-- ✅ **Web Interface**: Complete
-- ✅ **API Integration**: Complete
-- ✅ **Documentation**: Complete
-- 🔄 **Testing**: In Progress
-- 🔄 **Deployment**: In Progress
-
 ---
-
-**Made with ❤️ by [vinukaveesha](https://github.com/vinukaveesha)**
-
-⭐ If you find this project useful, please consider giving it a star!
