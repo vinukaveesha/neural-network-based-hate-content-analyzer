@@ -132,13 +132,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 python -m streamlit run streamlit_app.py
 ```
 
-#### Method 2: Using the Launcher Script (Windows)
-```bash
-# Make sure the script is executable
-run_app.bat
-```
-
-#### Method 3: Custom Port
+#### Method 2: Custom Port
 ```bash
 # Run on a specific port
 python -m streamlit run streamlit_app.py --server.port 8502
