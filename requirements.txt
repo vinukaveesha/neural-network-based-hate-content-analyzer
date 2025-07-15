@@ -1,0 +1,12 @@
+tensorflow>=2.12.0
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+nltk
+demoji
+google-generativeai
+streamlit
+plotly
+python-dotenv
