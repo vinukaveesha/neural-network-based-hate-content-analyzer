@@ -1,6 +1,7 @@
 import streamlit as st
 import re
 import os
+import json
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -139,30 +140,96 @@ class StreamlitHateSpeechDetector:
         return preprocess_text_lstm(text, self.stop_words, self.lemmatizer)
     
     def predict_with_confidence(self, text):
-        """Predict with confidence estimation"""
+        """Predict with confidence estimation and dual-layer detection"""
         cleaned_text = self.preprocess(text)
         
         if not cleaned_text:
-            return False, 0.0, "Low", cleaned_text
+            return False, 0.0, "Low", cleaned_text, "LSTM only", None
         
         # Convert to sequence
         sequence = self.tokenizer.texts_to_sequences([cleaned_text])
         padded_sequence = pad_sequences(sequence, maxlen=self.max_len, padding='post', truncating='post')
         
-        # Get prediction
-        prob = self.model.predict(padded_sequence, verbose=0)[0][0]
-        is_hate = prob > self.threshold
+        # Get LSTM prediction
+        lstm_prob = self.model.predict(padded_sequence, verbose=0)[0][0]
+        lstm_is_hate = lstm_prob > self.threshold
         
-        # Calculate confidence based on distance from threshold
-        distance_from_threshold = abs(prob - self.threshold)
-        if distance_from_threshold > 0.3:
+        # Initialize variables for final decision
+        final_is_hate = lstm_is_hate
+        final_prob = lstm_prob
+        detection_method = "LSTM only"
+        gemini_result = None
+        
+        # If LSTM says it's NOT hate, double-check with Gemini
+        if not lstm_is_hate:
+            gemini_result = self.gemini_hate_check(text)
+            
+            if gemini_result["is_hate"] and gemini_result["confidence"] > 0.7:
+                # Gemini is confident it's hate speech, override LSTM decision
+                final_is_hate = True
+                # Combine probabilities: give more weight to Gemini when it's very confident
+                final_prob = (lstm_prob * 0.3) + (gemini_result["confidence"] * 0.7)
+                detection_method = "Gemini override"
+            elif gemini_result["is_hate"] and gemini_result["confidence"] > 0.5:
+                # Gemini thinks it's hate but not very confident, average the decisions
+                final_is_hate = True
+                final_prob = (lstm_prob * 0.5) + (gemini_result["confidence"] * 0.5)
+                detection_method = "Hybrid (LSTM + Gemini)"
+            else:
+                # Both agree it's not hate
+                detection_method = "LSTM + Gemini agreement"
+        
+        # Calculate confidence based on final probability
+        if final_prob > 0.8 or final_prob < 0.2:
             confidence = "High"
-        elif distance_from_threshold > 0.1:
+        elif final_prob > 0.6 or final_prob < 0.4:
             confidence = "Medium"
         else:
             confidence = "Low"
         
-        return is_hate, float(prob), confidence, cleaned_text
+        return final_is_hate, float(final_prob), confidence, cleaned_text, detection_method, gemini_result
+    
+    def gemini_hate_check(self, text):
+        """Use Gemini to double-check if text contains hate speech"""
+        if not self.gemini:
+            return {
+                "is_hate": False,
+                "confidence": 0.0,
+                "explanation": "Gemini API not configured"
+            }
+        
+        prompt = f"""Analyze the following text and determine if it contains hate speech, harassment, discrimination, or offensive content.
+        
+        Text: "{text}"
+        
+        Consider these types of hate speech:
+        - Sexual harassment
+        - Religious hate
+        - Political hate
+        - Racial discrimination
+        - Gender-based hate
+        - Threats or violence
+        - Personal attacks
+        - Offensive language targeting groups or individuals
+        
+        Return your response in JSON format with these keys:
+        - "is_hate": true or false
+        - "confidence": your confidence score between 0-1
+        - "explanation": brief explanation of your decision (1-2 sentences)
+        """
+        
+        try:
+            response = self.gemini.generate_content(prompt)
+            json_str = response.text.replace('```json', '').replace('```', '').strip()
+
+            result = json.loads(json_str)
+            return result
+        except Exception as e:
+            return {
+                "is_hate": False,
+                "confidence": 0.0,
+                "explanation": f"Error: {str(e)}"
+            }
     
     def classify_hate_category(self, text):
         """Classify hate speech category using Gemini"""
@@ -194,7 +261,9 @@ class StreamlitHateSpeechDetector:
         try:
             response = self.gemini.generate_content(prompt)
             json_str = response.text.replace('```json', '').replace('```', '').strip()
-            result = eval(json_str)
+            
+            # Use json.loads instead of eval for proper JSON parsing
+            result = json.loads(json_str)
             return result
         except Exception as e:
             return {
@@ -219,23 +288,7 @@ def main():
     
     # Initialize detector
     detector = StreamlitHateSpeechDetector(model, tokenizer)
-    
-    # Sidebar
-    st.sidebar.title("⚙️ Settings")
-    threshold = st.sidebar.slider("Detection Threshold", 0.0, 1.0, 0.5, 0.01)
-    detector.threshold = threshold
-    
-    st.sidebar.markdown("### About")
-    st.sidebar.info("""
-    This system uses an LSTM neural network to detect hate speech in text.
-    
-    **Features**
-    - Real-time hate speech detection
-    - Confidence scoring
-    - Category classification
-    - Text preprocessing analysis
-    """)
-    
+   
     # Main interface
     col1, col2 = st.columns([2, 1])
     
@@ -301,7 +354,7 @@ def main():
 def analyze_single_text(detector, text):
     """Analyze a single text input"""
     # Get prediction
-    is_hate, prob, confidence, cleaned_text = detector.predict_with_confidence(text)
+    is_hate, prob, confidence, cleaned_text, detection_method, gemini_result = detector.predict_with_confidence(text)
     
     # Display results
     st.subheader("Analysis Results")
@@ -320,7 +373,6 @@ def analyze_single_text(detector, text):
     
     with col3:
         st.metric("Confidence", confidence)
-    
     
     # Category classification for hate speech
     if is_hate:
@@ -353,6 +405,19 @@ def analyze_single_text(detector, text):
         6. Remove stopwords
         7. Lemmatization
         """)
+        
+        # Detection process details
+        st.write("**Detection Process:**")
+        st.markdown("""
+        1. **LSTM Analysis**: Primary neural network prediction
+        2. **Gemini Check**: Secondary AI verification (if LSTM says "not hate")
+        3. **Final Decision**: Combined result based on both models
+        """)
+        
+        if detection_method == "Gemini override":
+            st.warning("⚠️ **Note**: LSTM model classified this as 'not hate', but Gemini detected hate speech with high confidence and overrode the decision.")
+        elif detection_method == "Hybrid (LSTM + Gemini)":
+            st.info("ℹ️ **Note**: LSTM model classified this as 'not hate', but Gemini suspected hate speech. The final decision is based on both models.")
 
 def analyze_multiple_texts(detector, texts):
     """Analyze multiple texts"""
@@ -362,13 +427,14 @@ def analyze_multiple_texts(detector, texts):
     progress_bar = st.progress(0)
     
     for i, text in enumerate(texts):
-        is_hate, prob, confidence, cleaned_text = detector.predict_with_confidence(text)
+        is_hate, prob, confidence, cleaned_text, detection_method, gemini_result = detector.predict_with_confidence(text)
         
         result = {
             "Text": text[:50] + "..." if len(text) > 50 else text,
             "Is Hate Speech": "Yes" if is_hate else "No",
             "Probability": f"{prob:.3f}",
             "Confidence": confidence,
+            "Detection Method": detection_method,
             "Full Text": text
         }
         results.append(result)
@@ -382,6 +448,7 @@ def analyze_multiple_texts(detector, texts):
     
     hate_count = len([r for r in results if r["Is Hate Speech"] == "Yes"])
     total_count = len(results)
+    gemini_override_count = len([r for r in results if r["Detection Method"] == "Gemini override"])
     
     with col1:
         st.metric("Total Texts", total_count)
@@ -390,7 +457,14 @@ def analyze_multiple_texts(detector, texts):
     with col3:
         st.metric("Clean Texts", total_count - hate_count)
     with col4:
+        st.metric("Gemini Overrides", gemini_override_count)
+    
+    # Additional stats
+    col1, col2 = st.columns(2)
+    with col1:
         st.metric("Hate Speech Rate", f"{(hate_count/total_count)*100:.1f}%")
+    with col2:
+        st.metric("Override Rate", f"{(gemini_override_count/total_count)*100:.1f}%")
     
     # Display results table
     st.subheader("Detailed Results")
@@ -398,13 +472,15 @@ def analyze_multiple_texts(detector, texts):
     # Add filtering options
     filter_option = st.selectbox(
         "Filter results:",
-        ["All", "Hate Speech Only", "Clean Text Only"]
+        ["All", "Hate Speech Only", "Clean Text Only", "Gemini Overrides Only"]
     )
     
     if filter_option == "Hate Speech Only":
         filtered_df = df[df["Is Hate Speech"] == "Yes"]
     elif filter_option == "Clean Text Only":
         filtered_df = df[df["Is Hate Speech"] == "No"]
+    elif filter_option == "Gemini Overrides Only":
+        filtered_df = df[df["Detection Method"] == "Gemini override"]
     else:
         filtered_df = df
     
@@ -414,6 +490,28 @@ def analyze_multiple_texts(detector, texts):
         use_container_width=True,
         hide_index=True
     )
+    
+    # Show detection method breakdown
+    if len(results) > 0:
+        st.subheader("🔍 Detection Method Breakdown")
+        detection_counts = {}
+        for result in results:
+            method = result["Detection Method"]
+            detection_counts[method] = detection_counts.get(method, 0) + 1
+        
+        for method, count in detection_counts.items():
+            percentage = (count / total_count) * 100
+            st.write(f"**{method}:** {count} texts ({percentage:.1f}%)")
+    
+    # Export functionality
+    if st.button("📥 Download Results as CSV"):
+        csv = df.to_csv(index=False)
+        st.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name=f"hate_speech_analysis_{time.strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
     
 
 if __name__ == "__main__":
