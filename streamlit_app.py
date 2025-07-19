@@ -164,20 +164,27 @@ class StreamlitHateSpeechDetector:
         if not lstm_is_hate:
             gemini_result = self.gemini_hate_check(text)
             
-            if gemini_result["is_hate"] and gemini_result["confidence"] > 0.7:
-                # Gemini is confident it's hate speech, override LSTM decision
-                final_is_hate = True
-                # Combine probabilities: give more weight to Gemini when it's very confident
-                final_prob = (lstm_prob * 0.3) + (gemini_result["confidence"] * 0.7)
-                detection_method = "Gemini override"
-            elif gemini_result["is_hate"] and gemini_result["confidence"] > 0.5:
-                # Gemini thinks it's hate but not very confident, average the decisions
-                final_is_hate = True
-                final_prob = (lstm_prob * 0.5) + (gemini_result["confidence"] * 0.5)
-                detection_method = "Hybrid (LSTM + Gemini)"
+            # Check if Gemini API failed
+            if gemini_result.get("api_failed", False):
+                # API failed - use LSTM result as fallback
+                detection_method = f"LSTM only (Gemini failed: {gemini_result.get('error_type', 'unknown')})"
+                # Don't override LSTM decision when API fails
             else:
-                # Both agree it's not hate
-                detection_method = "LSTM + Gemini agreement"
+                # API succeeded - proceed with dual-layer logic
+                if gemini_result["is_hate"] and gemini_result["confidence"] > 0.7:
+                    # Gemini is confident it's hate speech, override LSTM decision
+                    final_is_hate = True
+                    # Combine probabilities: give more weight to Gemini when it's very confident
+                    final_prob = (lstm_prob * 0.3) + (gemini_result["confidence"] * 0.7)
+                    detection_method = "Gemini override"
+                elif gemini_result["is_hate"] and gemini_result["confidence"] > 0.5:
+                    # Gemini thinks it's hate but not very confident, average the decisions
+                    final_is_hate = True
+                    final_prob = (lstm_prob * 0.5) + (gemini_result["confidence"] * 0.5)
+                    detection_method = "Hybrid (LSTM + Gemini)"
+                else:
+                    # Both agree it's not hate
+                    detection_method = "LSTM + Gemini agreement"
         
         # Calculate confidence based on final probability
         if final_prob > 0.8 or final_prob < 0.2:
@@ -190,12 +197,13 @@ class StreamlitHateSpeechDetector:
         return final_is_hate, float(final_prob), confidence, cleaned_text, detection_method, gemini_result
     
     def gemini_hate_check(self, text):
-        """Use Gemini to double-check if text contains hate speech"""
+        """Use Gemini to double-check if text contains hate speech with fallback handling"""
         if not self.gemini:
             return {
                 "is_hate": False,
                 "confidence": 0.0,
-                "explanation": "Gemini API not configured"
+                "explanation": "Gemini API not configured",
+                "api_failed": True
             }
         
         prompt = f"""Analyze the following text and determine if it contains hate speech, harassment, discrimination, or offensive content.
@@ -221,23 +229,46 @@ class StreamlitHateSpeechDetector:
         try:
             response = self.gemini.generate_content(prompt)
             json_str = response.text.replace('```json', '').replace('```', '').strip()
-
             result = json.loads(json_str)
+            result["api_failed"] = False
             return result
         except Exception as e:
-            return {
-                "is_hate": False,
-                "confidence": 0.0,
-                "explanation": f"Error: {str(e)}"
-            }
+            error_msg = str(e).lower()
+            
+            # Check for specific API failure types
+            if any(keyword in error_msg for keyword in ['quota', 'limit', 'rate', 'exceeded', 'too many']):
+                return {
+                    "is_hate": False,
+                    "confidence": 0.0,
+                    "explanation": "Gemini API rate limit exceeded - using LSTM result",
+                    "api_failed": True,
+                    "error_type": "rate_limit"
+                }
+            elif any(keyword in error_msg for keyword in ['timeout', 'connection', 'network']):
+                return {
+                    "is_hate": False,
+                    "confidence": 0.0,
+                    "explanation": "Gemini API connection failed - using LSTM result",
+                    "api_failed": True,
+                    "error_type": "connection"
+                }
+            else:
+                return {
+                    "is_hate": False,
+                    "confidence": 0.0,
+                    "explanation": f"Gemini API error: {str(e)[:100]}... - using LSTM result",
+                    "api_failed": True,
+                    "error_type": "other"
+                }
     
     def classify_hate_category(self, text):
-        """Classify hate speech category using Gemini"""
+        """Classify hate speech category using Gemini with fallback handling"""
         if not self.gemini:
             return {
                 "category": "Classification not available",
                 "confidence": 0.0,
-                "explanation": "Gemini API not configured"
+                "explanation": "Gemini API not configured",
+                "api_failed": True
             }
         
         candidate_labels = [
@@ -261,16 +292,37 @@ class StreamlitHateSpeechDetector:
         try:
             response = self.gemini.generate_content(prompt)
             json_str = response.text.replace('```json', '').replace('```', '').strip()
-            
-            # Use json.loads instead of eval for proper JSON parsing
             result = json.loads(json_str)
+            result["api_failed"] = False
             return result
         except Exception as e:
-            return {
-                "category": "Classification failed",
-                "confidence": 0.0,
-                "explanation": f"Error: {str(e)}"
-            }
+            error_msg = str(e).lower()
+            
+            # Check for specific API failure types
+            if any(keyword in error_msg for keyword in ['quota', 'limit', 'rate', 'exceeded', 'too many']):
+                return {
+                    "category": "Classification failed - Rate limit exceeded",
+                    "confidence": 0.0,
+                    "explanation": "Gemini API rate limit exceeded - category classification unavailable",
+                    "api_failed": True,
+                    "error_type": "rate_limit"
+                }
+            elif any(keyword in error_msg for keyword in ['timeout', 'connection', 'network']):
+                return {
+                    "category": "Classification failed - Connection error",
+                    "confidence": 0.0,
+                    "explanation": "Gemini API connection failed - category classification unavailable",
+                    "api_failed": True,
+                    "error_type": "connection"
+                }
+            else:
+                return {
+                    "category": "Classification failed - API error",
+                    "confidence": 0.0,
+                    "explanation": f"Gemini API error: {str(e)[:50]}... - category classification unavailable",
+                    "api_failed": True,
+                    "error_type": "other"
+                }
 
 # Main Streamlit App
 def main():
@@ -374,13 +426,50 @@ def analyze_single_text(detector, text):
     with col3:
         st.metric("Confidence", confidence)
     
+    # Show Gemini secondary check details if used
+    if gemini_result and detection_method != "LSTM only":
+        
+        # Check if API failed
+        if gemini_result.get("api_failed", False):
+            error_type = gemini_result.get("error_type", "unknown")
+            if error_type == "rate_limit":
+                st.warning("⚠️ **Gemini API Rate Limit Exceeded** - Using LSTM result only")
+            elif error_type == "connection":
+                st.warning("⚠️ **Gemini API Connection Failed** - Using LSTM result only")
+            else:
+                st.warning("⚠️ **Gemini API Error** - Using LSTM result only")
+            
+            st.markdown(f"**Error Details:** {gemini_result['explanation']}")
+        else:
+            # API succeeded - show normal results
+            col1, col2 = st.columns(2)
+            with col1:
+                gemini_status = "Detected Hate" if gemini_result["is_hate"] else "No Hate Detected"
+                st.metric("Gemini Decision", gemini_status)
+            with col2:
+                st.metric("Gemini Confidence", f"{gemini_result['confidence']:.3f}")
+            
+            st.markdown(f"**Gemini Explanation:** {gemini_result['explanation']}")
+    
     # Category classification for hate speech
     if is_hate:
-        st.subheader("🏷️ Category Classification")
+        st.subheader("Category Classification")
         with st.spinner("Classifying category..."):
             category_result = detector.classify_hate_category(text)
         
-        if category_result["category"] != "Classification not available":
+        if category_result.get("api_failed", False):
+            # API failed for category classification
+            error_type = category_result.get("error_type", "unknown")
+            if error_type == "rate_limit":
+                st.warning("⚠️ **Category Classification Unavailable** - Gemini API rate limit exceeded")
+            elif error_type == "connection":
+                st.warning("⚠️ **Category Classification Unavailable** - Gemini API connection failed")
+            else:
+                st.warning("⚠️ **Category Classification Unavailable** - Gemini API error")
+            
+            st.markdown(f"**Error Details:** {category_result['explanation']}")
+        elif category_result["category"] not in ["Classification not available", "Classification failed"]:
+            # API succeeded
             col1, col2 = st.columns(2)
             with col1:
                 st.info(f"**Category:** {category_result['category']}")
@@ -388,6 +477,9 @@ def analyze_single_text(detector, text):
                 st.info(f"**Confidence:** {category_result['confidence']:.3f}")
             
             st.markdown(f"**Explanation:** {category_result['explanation']}")
+        else:
+            # API not configured
+            st.info("**Category Classification:** Not available (Gemini API not configured)")
     
     # Text preprocessing details
     with st.expander("🔍 Text Preprocessing Details"):
@@ -404,14 +496,6 @@ def analyze_single_text(detector, text):
         5. Tokenization
         6. Remove stopwords
         7. Lemmatization
-        """)
-        
-        # Detection process details
-        st.write("**Detection Process:**")
-        st.markdown("""
-        1. **LSTM Analysis**: Primary neural network prediction
-        2. **Gemini Check**: Secondary AI verification (if LSTM says "not hate")
-        3. **Final Decision**: Combined result based on both models
         """)
         
         if detection_method == "Gemini override":
@@ -449,6 +533,7 @@ def analyze_multiple_texts(detector, texts):
     hate_count = len([r for r in results if r["Is Hate Speech"] == "Yes"])
     total_count = len(results)
     gemini_override_count = len([r for r in results if r["Detection Method"] == "Gemini override"])
+    api_failed_count = len([r for r in results if "failed" in r["Detection Method"]])
     
     with col1:
         st.metric("Total Texts", total_count)
@@ -460,11 +545,13 @@ def analyze_multiple_texts(detector, texts):
         st.metric("Gemini Overrides", gemini_override_count)
     
     # Additional stats
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Hate Speech Rate", f"{(hate_count/total_count)*100:.1f}%")
     with col2:
         st.metric("Override Rate", f"{(gemini_override_count/total_count)*100:.1f}%")
+    with col3:
+        st.metric("API Failures", api_failed_count, delta=f"{(api_failed_count/total_count)*100:.1f}%" if api_failed_count > 0 else "0%")
     
     # Display results table
     st.subheader("Detailed Results")
