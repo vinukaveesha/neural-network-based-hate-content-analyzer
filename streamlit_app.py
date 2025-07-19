@@ -426,30 +426,6 @@ def analyze_single_text(detector, text):
     with col3:
         st.metric("Confidence", confidence)
     
-    # Show Gemini secondary check details if used
-    if gemini_result and detection_method != "LSTM only":
-        
-        # Check if API failed
-        if gemini_result.get("api_failed", False):
-            error_type = gemini_result.get("error_type", "unknown")
-            if error_type == "rate_limit":
-                st.warning("⚠️ **Gemini API Rate Limit Exceeded** - Using LSTM result only")
-            elif error_type == "connection":
-                st.warning("⚠️ **Gemini API Connection Failed** - Using LSTM result only")
-            else:
-                st.warning("⚠️ **Gemini API Error** - Using LSTM result only")
-            
-            st.markdown(f"**Error Details:** {gemini_result['explanation']}")
-        else:
-            # API succeeded - show normal results
-            col1, col2 = st.columns(2)
-            with col1:
-                gemini_status = "Detected Hate" if gemini_result["is_hate"] else "No Hate Detected"
-                st.metric("Gemini Decision", gemini_status)
-            with col2:
-                st.metric("Gemini Confidence", f"{gemini_result['confidence']:.3f}")
-            
-            st.markdown(f"**Gemini Explanation:** {gemini_result['explanation']}")
     
     # Category classification for hate speech
     if is_hate:
