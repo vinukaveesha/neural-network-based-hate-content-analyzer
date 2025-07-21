@@ -13,8 +13,6 @@ from nltk.stem import WordNetLemmatizer
 import nltk
 import pickle
 import warnings
-import google.generativeai as genai
-from dotenv import load_dotenv
 import demoji
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -23,8 +21,34 @@ import time
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
-# Load environment variables
-load_dotenv()
+# Define hate class mappings from the notebook
+HATE_CLASS_MAPPING = {
+    'sex_hate': 0,
+    'other_hate': 1,
+    'sports_hate': 2,
+    'politics_hate': 3,
+    'religious_hate': 4
+}
+
+REVERSE_HATE_CLASS_MAPPING = {v: k for k, v in HATE_CLASS_MAPPING.items()}
+
+def simple_preprocess(text):
+    """Simple and effective preprocessing from the notebook"""
+    if pd.isna(text) or text == '':
+        return ''
+    
+    text = str(text).lower()
+    
+    # Remove URLs and mentions
+    text = re.sub(r'http\S+|www\S+|@\w+', '', text)
+    
+    # Keep only letters, numbers and spaces
+    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
+    
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text.strip())
+    
+    return text
 
 # Configure Streamlit page
 st.set_page_config(
@@ -98,144 +122,164 @@ def preprocess_text_lstm(text, stop_words, lemmatizer):
 # Load model and tokenizer
 @st.cache_resource
 def load_model_and_tokenizer():
-    """Load the trained model and tokenizer"""
+    """Load the trained models and tokenizers"""
     try:
+        # Load main LSTM model for hate detection
         model = load_model('models/best_lstm_model.h5')
         with open('models/tokenizer.pickle', 'rb') as f:
             tokenizer = pickle.load(f)
-        return model, tokenizer
+        
+        # Load categorizing CNN model for hate classification
+        categorizer_model = load_model('categorizing models/best_hate_classifier_cnn.h5')
+        with open('categorizing models/hate_classifier_tokenizer.pickle', 'rb') as f:
+            categorizer_tokenizer = pickle.load(f)
+        with open('categorizing models/hate_classifier_labels.pickle', 'rb') as f:
+            label_encoder = pickle.load(f)
+            
+        return model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        return None, None
+        st.error(f"Error loading models: {str(e)}")
+        return None, None, None, None, None
 
 # Hate Speech Detector Class
 class StreamlitHateSpeechDetector:
-    def __init__(self, model, tokenizer, threshold=0.5, max_len=100):
+    def __init__(self, model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder, threshold=0.5, max_len=100):
         self.model = model
         self.tokenizer = tokenizer
+        self.categorizer_model = categorizer_model
+        self.categorizer_tokenizer = categorizer_tokenizer
+        self.label_encoder = label_encoder
         self.threshold = threshold
         self.max_len = max_len
         
         # Initialize NLTK components
         self.stop_words, self.lemmatizer = initialize_nltk()
         
-        # Initialize Gemini for category classification
-        self.gemini = self._initialize_gemini()
+        # Get class names for categorizer
+        self.class_names = list(self.label_encoder.classes_)
     
-    def _initialize_gemini(self):
-        """Initialize Gemini API"""
-        try:
-            GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-            if GEMINI_API_KEY:
-                genai.configure(api_key=GEMINI_API_KEY)
-                return genai.GenerativeModel('gemini-1.5-flash')
-            else:
-                return None
-        except Exception:
-            return None
-    
-    def preprocess(self, text):
-        """Apply same preprocessing as training"""
+    def preprocess_lstm(self, text):
+        """Apply LSTM preprocessing"""
         return preprocess_text_lstm(text, self.stop_words, self.lemmatizer)
     
+    def preprocess_simple(self, text):
+        """Apply simple preprocessing for categorizer"""
+        return simple_preprocess(text)
+    
     def predict_with_confidence(self, text):
-        """Predict with confidence estimation"""
-        cleaned_text = self.preprocess(text)
+        """Predict hate speech with confidence estimation"""
+        # Preprocess for LSTM model
+        cleaned_text_lstm = self.preprocess_lstm(text)
         
-        if not cleaned_text:
-            return False, 0.0, "Low", cleaned_text
+        if not cleaned_text_lstm:
+            return False, 0.0, "Low", cleaned_text_lstm, "No content after preprocessing", None
         
-        # Convert to sequence
-        sequence = self.tokenizer.texts_to_sequences([cleaned_text])
+        # Convert to sequence for LSTM
+        sequence = self.tokenizer.texts_to_sequences([cleaned_text_lstm])
         padded_sequence = pad_sequences(sequence, maxlen=self.max_len, padding='post', truncating='post')
         
-        # Get prediction
-        prob = self.model.predict(padded_sequence, verbose=0)[0][0]
-        is_hate = prob > self.threshold
+        # Get LSTM prediction
+        lstm_prob = self.model.predict(padded_sequence, verbose=0)[0][0]
+        is_hate = lstm_prob > self.threshold
         
-        # Calculate confidence based on distance from threshold
-        distance_from_threshold = abs(prob - self.threshold)
-        if distance_from_threshold > 0.3:
+        # Calculate confidence based on probability
+        if lstm_prob > 0.8 or lstm_prob < 0.2:
             confidence = "High"
-        elif distance_from_threshold > 0.1:
+        elif lstm_prob > 0.6 or lstm_prob < 0.4:
             confidence = "Medium"
         else:
             confidence = "Low"
         
-        return is_hate, float(prob), confidence, cleaned_text
+        detection_method = "LSTM model"
+        category_result = None
+        
+        # If it's hate speech, classify the category
+        if is_hate:
+            category_result = self.classify_hate_category(text)
+        
+        return is_hate, float(lstm_prob), confidence, cleaned_text_lstm, detection_method, category_result
     
     def classify_hate_category(self, text):
-        """Classify hate speech category using Gemini"""
-        if not self.gemini:
-            return {
-                "category": "Classification not available",
-                "confidence": 0.0,
-                "explanation": "Gemini API not configured"
-            }
-        
-        candidate_labels = [
-            "Sexual harassment",
-            "Religious hate",
-            "Political hate", 
-            "Racial discrimination",
-            "Gender-based hate",
-            "Other hate speech"
-        ]
-        
-        prompt = f"""Classify the following text into exactly one of these categories:
-        {", ".join(candidate_labels)}.
-        Text: "{text}"
-        Return your response in JSON format with these keys:
-        - "category": the most appropriate category name
-        - "confidence": your confidence score between 0-1
-        - "explanation": brief explanation (1 sentence)
-        """
-        
+        """Classify hate speech category using the CNN categorizer model"""
         try:
-            response = self.gemini.generate_content(prompt)
-            json_str = response.text.replace('```json', '').replace('```', '').strip()
-            result = eval(json_str)
-            return result
+            # Preprocess for categorizer
+            cleaned_text = self.preprocess_simple(text)
+            
+            if not cleaned_text:
+                return {
+                    "category": "other_hate",
+                    "confidence": 0.0,
+                    "explanation": "No content after preprocessing",
+                    "all_probabilities": {}
+                }
+            
+            # Convert to sequence for categorizer
+            sequence = self.categorizer_tokenizer.texts_to_sequences([cleaned_text])
+            padded_sequence = pad_sequences(sequence, maxlen=self.max_len, padding='post')
+            
+            # Predict category
+            prob_dist = self.categorizer_model.predict(padded_sequence, verbose=0)[0]
+            predicted_idx = np.argmax(prob_dist)
+            predicted_class = self.label_encoder.inverse_transform([predicted_idx])[0]
+            confidence_score = float(prob_dist[predicted_idx])
+            
+            # Create probability dictionary
+            prob_dict = {self.class_names[i]: float(prob_dist[i]) 
+                        for i in range(len(self.class_names))}
+            
+            # Convert category names to more readable format
+            category_display_names = {
+                'sex_hate': 'Gender-based Hate',
+                'other_hate': 'General Hate Speech',
+                'sports_hate': 'Sports-related Hate',
+                'politics_hate': 'Political Hate',
+                'religious_hate': 'Religious Hate'
+            }
+            
+            display_category = category_display_names.get(predicted_class, predicted_class)
+            
+            return {
+                "category": display_category,
+                "raw_category": predicted_class,
+                "confidence": confidence_score,
+                "explanation": f"Classified as {display_category} with {confidence_score:.1%} confidence",
+                "all_probabilities": prob_dict,
+                "api_failed": False
+            }
+            
         except Exception as e:
             return {
-                "category": "Classification failed",
+                "category": "Classification Error",
                 "confidence": 0.0,
-                "explanation": f"Error: {str(e)}"
+                "explanation": f"Error in classification: {str(e)}",
+                "all_probabilities": {},
+                "api_failed": True
             }
 
 # Main Streamlit App
 def main():
     # Header
     st.title("Hate Content Detection System")
-    st.markdown("### Advanced AI-powered hate content detection with category classification")
+    st.markdown("### AI-powered hate content detection with category classification")
+    st.markdown("""
+    **Models Used:**
+    - **LSTM Model**: Primary hate speech detection
+    - **CNN Model**: Hate speech category classification (5 categories)
+    """)
     st.markdown("---")
     
-    # Load model and tokenizer
-    model, tokenizer = load_model_and_tokenizer()
+    # Load models and tokenizers
+    model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder = load_model_and_tokenizer()
     
-    if model is None or tokenizer is None:
-        st.error("❌ Failed to load model or tokenizer. Please check if the model files exist.")
+    if any(x is None for x in [model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder]):
+        st.error("Failed to load models or tokenizers. Please check if the model files exist.")
         return
     
     # Initialize detector
-    detector = StreamlitHateSpeechDetector(model, tokenizer)
-    
-    # Sidebar
-    st.sidebar.title("⚙️ Settings")
-    threshold = st.sidebar.slider("Detection Threshold", 0.0, 1.0, 0.5, 0.01)
-    detector.threshold = threshold
-    
-    st.sidebar.markdown("### About")
-    st.sidebar.info("""
-    This system uses an LSTM neural network to detect hate speech in text.
-    
-    **Features**
-    - Real-time hate speech detection
-    - Confidence scoring
-    - Category classification
-    - Text preprocessing analysis
-    """)
-    
+    detector = StreamlitHateSpeechDetector(
+        model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder
+    )
+   
     # Main interface
     col1, col2 = st.columns([2, 1])
     
@@ -288,9 +332,9 @@ def main():
         sample_examples = [
             "I love this beautiful day!",
             "You're such an idiot!",
-            "This food is terrible",
-            "I hate when people don't clean up",
-            "You people are disgusting"
+            "Women belong in the kitchen",
+            "All politicians are corrupt thieves",
+            "Those religious fanatics are crazy"
         ]
         
         for i, example in enumerate(sample_examples):
@@ -301,7 +345,7 @@ def main():
 def analyze_single_text(detector, text):
     """Analyze a single text input"""
     # Get prediction
-    is_hate, prob, confidence, cleaned_text = detector.predict_with_confidence(text)
+    is_hate, prob, confidence, cleaned_text, detection_method, category_result = detector.predict_with_confidence(text)
     
     # Display results
     st.subheader("Analysis Results")
@@ -321,14 +365,16 @@ def analyze_single_text(detector, text):
     with col3:
         st.metric("Confidence", confidence)
     
-    
     # Category classification for hate speech
-    if is_hate:
-        st.subheader("🏷️ Category Classification")
-        with st.spinner("Classifying category..."):
-            category_result = detector.classify_hate_category(text)
+    if is_hate and category_result:
+        st.subheader("Category Classification")
         
-        if category_result["category"] != "Classification not available":
+        if category_result.get("api_failed", False):
+            # Classification failed
+            st.warning("**Category Classification Failed**")
+            st.markdown(f"**Error:** {category_result['explanation']}")
+        else:
+            # Classification successful
             col1, col2 = st.columns(2)
             with col1:
                 st.info(f"**Category:** {category_result['category']}")
@@ -336,39 +382,49 @@ def analyze_single_text(detector, text):
                 st.info(f"**Confidence:** {category_result['confidence']:.3f}")
             
             st.markdown(f"**Explanation:** {category_result['explanation']}")
+            
+            # Show all probabilities if available
+            if category_result.get('all_probabilities'):
+                st.subheader("All Category Probabilities")
+                prob_df = pd.DataFrame([
+                    {"Category": k, "Probability": f"{v:.3f}"} 
+                    for k, v in sorted(category_result['all_probabilities'].items(), 
+                                     key=lambda x: x[1], reverse=True)
+                ])
+                st.dataframe(prob_df, use_container_width=True, hide_index=True)
     
     # Text preprocessing details
-    with st.expander("🔍 Text Preprocessing Details"):
+    with st.expander("Text Preprocessing Details"):
         st.write("**Original Text:**")
         st.code(text)
         st.write("**Cleaned Text:**")
         st.code(cleaned_text if cleaned_text else "Empty after preprocessing")
-        st.write("**Preprocessing Steps:**")
-        st.markdown("""
-        1. Remove emojis
-        2. Remove URLs, mentions, hashtags
-        3. Convert to lowercase
-        4. Remove punctuation
-        5. Tokenization
-        6. Remove stopwords
-        7. Lemmatization
-        """)
 
 def analyze_multiple_texts(detector, texts):
     """Analyze multiple texts"""
-    st.subheader("📊 Batch Analysis Results")
+    st.subheader("Batch Analysis Results")
     
     results = []
     progress_bar = st.progress(0)
     
     for i, text in enumerate(texts):
-        is_hate, prob, confidence, cleaned_text = detector.predict_with_confidence(text)
+        is_hate, prob, confidence, cleaned_text, detection_method, category_result = detector.predict_with_confidence(text)
+        
+        # Get category if it's hate speech
+        category = "N/A"
+        category_confidence = 0.0
+        if is_hate and category_result and not category_result.get("api_failed", False):
+            category = category_result.get("category", "Unknown")
+            category_confidence = category_result.get("confidence", 0.0)
         
         result = {
             "Text": text[:50] + "..." if len(text) > 50 else text,
             "Is Hate Speech": "Yes" if is_hate else "No",
             "Probability": f"{prob:.3f}",
             "Confidence": confidence,
+            "Category": category,
+            "Category Confidence": f"{category_confidence:.3f}" if category_confidence > 0 else "N/A",
+            "Detection Method": detection_method,
             "Full Text": text
         }
         results.append(result)
@@ -382,6 +438,7 @@ def analyze_multiple_texts(detector, texts):
     
     hate_count = len([r for r in results if r["Is Hate Speech"] == "Yes"])
     total_count = len(results)
+    categorized_count = len([r for r in results if r["Category"] != "N/A"])
     
     with col1:
         st.metric("Total Texts", total_count)
@@ -390,7 +447,17 @@ def analyze_multiple_texts(detector, texts):
     with col3:
         st.metric("Clean Texts", total_count - hate_count)
     with col4:
+        st.metric("Successfully Categorized", categorized_count)
+    
+    # Additional stats
+    col1, col2, col3 = st.columns(3)
+    with col1:
         st.metric("Hate Speech Rate", f"{(hate_count/total_count)*100:.1f}%")
+    with col2:
+        st.metric("Categorization Rate", f"{(categorized_count/max(hate_count, 1))*100:.1f}%")
+    with col3:
+        accuracy_metric = f"{((total_count - hate_count + categorized_count)/total_count)*100:.1f}%"
+        st.metric("Overall Success", accuracy_metric)
     
     # Display results table
     st.subheader("Detailed Results")
@@ -398,13 +465,15 @@ def analyze_multiple_texts(detector, texts):
     # Add filtering options
     filter_option = st.selectbox(
         "Filter results:",
-        ["All", "Hate Speech Only", "Clean Text Only"]
+        ["All", "Hate Speech Only", "Clean Text Only", "Categorized Only"]
     )
     
     if filter_option == "Hate Speech Only":
         filtered_df = df[df["Is Hate Speech"] == "Yes"]
     elif filter_option == "Clean Text Only":
         filtered_df = df[df["Is Hate Speech"] == "No"]
+    elif filter_option == "Categorized Only":
+        filtered_df = df[df["Category"] != "N/A"]
     else:
         filtered_df = df
     
@@ -414,6 +483,22 @@ def analyze_multiple_texts(detector, texts):
         use_container_width=True,
         hide_index=True
     )
+    
+    # Show category breakdown if there are hate speech results
+    if hate_count > 0:
+        st.subheader("Category Breakdown")
+        category_counts = {}
+        for result in results:
+            if result["Is Hate Speech"] == "Yes" and result["Category"] != "N/A":
+                category = result["Category"]
+                category_counts[category] = category_counts.get(category, 0) + 1
+        
+        if category_counts:
+            for category, count in sorted(category_counts.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / hate_count) * 100
+                st.write(f"**{category}:** {count} texts ({percentage:.1f}% of hate speech)")
+        else:
+            st.write("No successful categorizations available.")
     
 
 if __name__ == "__main__":

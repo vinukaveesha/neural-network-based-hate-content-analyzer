@@ -6,7 +6,6 @@ seaborn
 scikit-learn
 nltk
 demoji
-google-generativeai
 streamlit
 plotly
 python-dotenv
