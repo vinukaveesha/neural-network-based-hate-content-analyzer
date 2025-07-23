@@ -21,7 +21,7 @@ import time
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
-# Define hate class mappings from the notebook
+# Define hate class mappings from the categorization notebook
 HATE_CLASS_MAPPING = {
     'sex_hate': 0,
     'other_hate': 1,
@@ -33,7 +33,7 @@ HATE_CLASS_MAPPING = {
 REVERSE_HATE_CLASS_MAPPING = {v: k for k, v in HATE_CLASS_MAPPING.items()}
 
 def simple_preprocess(text):
-    """Simple and effective preprocessing from the notebook"""
+    """Simple preprocessing for categorization model"""
     if pd.isna(text) or text == '':
         return ''
     
@@ -49,6 +49,39 @@ def simple_preprocess(text):
     text = re.sub(r'\s+', ' ', text.strip())
     
     return text
+
+def preprocess_text_cnn(text):
+    """Enhanced preprocessing optimized for CNN model from notebook"""
+    if pd.isna(text) or text == '':
+        return ''
+    text = str(text)
+
+    # Remove emojis
+    text = demoji.replace(text, '')
+
+    # Remove URLs, mentions, hashtags
+    text = re.sub(r"http\S+|www\S+|https\S+", '', text, flags=re.MULTILINE)
+    text = re.sub(r'\@\w+|\#\w+', '', text)
+
+    # Clean and normalize
+    text = re.sub(r'\s+', ' ', text.strip().lower())
+    text = re.sub(r'[^\w\s]', ' ', text)
+
+    if not text.strip():
+        return ''
+
+    # Tokenization and lemmatization
+    stop_words = set(stopwords.words('english'))
+    lemmatizer = WordNetLemmatizer()
+    tokens = word_tokenize(text)
+    processed_tokens = []
+
+    for token in tokens:
+        if token and len(token) > 1 and token not in stop_words:
+            lemma = lemmatizer.lemmatize(token)
+            processed_tokens.append(lemma)
+
+    return " ".join(processed_tokens) if processed_tokens else ''
 
 # Configure Streamlit page
 st.set_page_config(
@@ -83,53 +116,21 @@ def download_nltk_data():
 @st.cache_resource
 def initialize_nltk():
     download_nltk_data()
-    stop_words = set(stopwords.words('english'))
-    lemmatizer = WordNetLemmatizer()
-    return stop_words, lemmatizer
+    return True
 
-# Text preprocessing function
-def preprocess_text_lstm(text, stop_words, lemmatizer):
-    """Enhanced preprocessing optimized for LSTM model"""
-    if pd.isna(text) or text == '':
-        return ''
-    text = str(text)
-    
-    # Remove emojis
-    text = demoji.replace(text, '')
-    
-    # Remove URLs, mentions, hashtags
-    text = re.sub(r"http\S+|www\S+|https\S+", '', text, flags=re.MULTILINE)
-    text = re.sub(r'\@\w+|\#\w+', '', text)
-    
-    # Clean and normalize
-    text = re.sub(r'\s+', ' ', text.strip().lower())
-    text = re.sub(r'[^\w\s]', ' ', text)
-    
-    if not text.strip():
-        return ''
-    
-    # Tokenization and lemmatization
-    tokens = word_tokenize(text)
-    processed_tokens = []
-    
-    for token in tokens:
-        if token and len(token) > 1 and token not in stop_words:
-            lemma = lemmatizer.lemmatize(token)
-            processed_tokens.append(lemma)
-    
-    return " ".join(processed_tokens) if processed_tokens else ''
+# Text preprocessing function (removed as we're using CNN preprocessing)
 
 # Load model and tokenizer
 @st.cache_resource
 def load_model_and_tokenizer():
-    """Load the trained models and tokenizers"""
+    """Load the trained CNN model and tokenizer from new_models folder, plus categorization models"""
     try:
-        # Load main LSTM model for hate detection
-        model = load_model('models/best_lstm_model.h5')
-        with open('models/tokenizer.pickle', 'rb') as f:
+        # Load CNN model for hate detection
+        model = load_model('new_models/best_cnn_model.h5')
+        with open('new_models/tokenizer.pickle', 'rb') as f:
             tokenizer = pickle.load(f)
         
-        # Load categorizing CNN model for hate classification
+        # Load categorization CNN model
         categorizer_model = load_model('categorizing models/best_hate_classifier_cnn.h5')
         with open('categorizing models/hate_classifier_tokenizer.pickle', 'rb') as f:
             categorizer_tokenizer = pickle.load(f)
@@ -141,8 +142,8 @@ def load_model_and_tokenizer():
         st.error(f"Error loading models: {str(e)}")
         return None, None, None, None, None
 
-# Hate Speech Detector Class
-class StreamlitHateSpeechDetector:
+# CNN Hate Speech Detector Class with Categorization
+class CNNHateSpeechDetector:
     def __init__(self, model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder, threshold=0.5, max_len=100):
         self.model = model
         self.tokenizer = tokenizer
@@ -153,51 +154,51 @@ class StreamlitHateSpeechDetector:
         self.max_len = max_len
         
         # Initialize NLTK components
-        self.stop_words, self.lemmatizer = initialize_nltk()
+        initialize_nltk()
         
         # Get class names for categorizer
         self.class_names = list(self.label_encoder.classes_)
     
-    def preprocess_lstm(self, text):
-        """Apply LSTM preprocessing"""
-        return preprocess_text_lstm(text, self.stop_words, self.lemmatizer)
+    def preprocess_cnn(self, text):
+        """Apply CNN preprocessing for hate detection"""
+        return preprocess_text_cnn(text)
     
     def preprocess_simple(self, text):
-        """Apply simple preprocessing for categorizer"""
+        """Apply simple preprocessing for categorization"""
         return simple_preprocess(text)
     
     def predict_with_confidence(self, text):
         """Predict hate speech with confidence estimation"""
-        # Preprocess for LSTM model
-        cleaned_text_lstm = self.preprocess_lstm(text)
+        # Preprocess for CNN model
+        cleaned_text = self.preprocess_cnn(text)
         
-        if not cleaned_text_lstm:
-            return False, 0.0, "Low", cleaned_text_lstm, "No content after preprocessing", None
+        if not cleaned_text:
+            return False, 0.0, "Low", cleaned_text, "No content after preprocessing", None
         
-        # Convert to sequence for LSTM
-        sequence = self.tokenizer.texts_to_sequences([cleaned_text_lstm])
+        # Convert to sequence for CNN
+        sequence = self.tokenizer.texts_to_sequences([cleaned_text])
         padded_sequence = pad_sequences(sequence, maxlen=self.max_len, padding='post', truncating='post')
         
-        # Get LSTM prediction
-        lstm_prob = self.model.predict(padded_sequence, verbose=0)[0][0]
-        is_hate = lstm_prob > self.threshold
+        # Get CNN prediction
+        cnn_prob = self.model.predict(padded_sequence, verbose=0)[0][0]
+        is_hate = cnn_prob > self.threshold
         
         # Calculate confidence based on probability
-        if lstm_prob > 0.8 or lstm_prob < 0.2:
+        if cnn_prob > 0.8 or cnn_prob < 0.2:
             confidence = "High"
-        elif lstm_prob > 0.6 or lstm_prob < 0.4:
+        elif cnn_prob > 0.6 or cnn_prob < 0.4:
             confidence = "Medium"
         else:
             confidence = "Low"
         
-        detection_method = "LSTM model"
+        detection_method = "CNN model"
         category_result = None
         
         # If it's hate speech, classify the category
         if is_hate:
             category_result = self.classify_hate_category(text)
         
-        return is_hate, float(lstm_prob), confidence, cleaned_text_lstm, detection_method, category_result
+        return is_hate, float(cnn_prob), confidence, cleaned_text, detection_method, category_result
     
     def classify_hate_category(self, text):
         """Classify hate speech category using the CNN categorizer model"""
@@ -260,11 +261,11 @@ class StreamlitHateSpeechDetector:
 def main():
     # Header
     st.title("Hate Content Detection System")
-    st.markdown("### AI-powered hate content detection with category classification")
+    st.markdown("### AI-powered hate content detection using CNN model with categorization")
     st.markdown("""
     **Models Used:**
-    - **LSTM Model**: Primary hate speech detection
-    - **CNN Model**: Hate speech category classification (5 categories)
+    - **CNN Model**: Convolutional Neural Network for hate speech detection
+    - **CNN Categorizer**: Hate speech category classification (5 categories)
     """)
     st.markdown("---")
     
@@ -272,13 +273,11 @@ def main():
     model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder = load_model_and_tokenizer()
     
     if any(x is None for x in [model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder]):
-        st.error("Failed to load models or tokenizers. Please check if the model files exist.")
+        st.error("Failed to load models or tokenizers. Please check if the model files exist in the new_models and categorizing models folders.")
         return
     
     # Initialize detector
-    detector = StreamlitHateSpeechDetector(
-        model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder
-    )
+    detector = CNNHateSpeechDetector(model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder)
    
     # Main interface
     col1, col2 = st.columns([2, 1])
