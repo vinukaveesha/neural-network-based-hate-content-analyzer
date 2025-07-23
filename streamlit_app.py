@@ -126,8 +126,8 @@ def load_model_and_tokenizer():
     """Load the trained CNN model and tokenizer from new_models folder, plus categorization models"""
     try:
         # Load CNN model for hate detection
-        model = load_model('new_models/best_cnn_model.h5')
-        with open('new_models/tokenizer.pickle', 'rb') as f:
+        model = load_model('new_new_models/best_cnn_model.h5')
+        with open('new_new_models/tokenizer.pickle', 'rb') as f:
             tokenizer = pickle.load(f)
         
         # Load categorization CNN model
@@ -144,7 +144,7 @@ def load_model_and_tokenizer():
 
 # CNN Hate Speech Detector Class with Categorization
 class CNNHateSpeechDetector:
-    def __init__(self, model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder, threshold=0.5, max_len=100):
+    def __init__(self, model, tokenizer, categorizer_model, categorizer_tokenizer, label_encoder, threshold=0.3, max_len=100):
         self.model = model
         self.tokenizer = tokenizer
         self.categorizer_model = categorizer_model
